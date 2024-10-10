@@ -66,7 +66,7 @@ def sync_detailed(
 ) -> Response[Union[HTTPValidationError, ReRankResult]]:
     r"""Rerank
 
-     Rerank documents
+     Rerank documents. Aligned with Cohere API (https://docs.cohere.com/reference/rerank)
 
     ```python
     import requests
@@ -76,9 +76,10 @@ def sync_detailed(
             \"query\":\"Where is Munich?\",
             \"documents\":[\"Munich is in Germany.\", \"The sky is blue.\"]
         })
+    ```
 
     Args:
-        body (RerankInput):
+        body (RerankInput): Input for reranking
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -106,7 +107,7 @@ def sync(
 ) -> Optional[Union[HTTPValidationError, ReRankResult]]:
     r"""Rerank
 
-     Rerank documents
+     Rerank documents. Aligned with Cohere API (https://docs.cohere.com/reference/rerank)
 
     ```python
     import requests
@@ -116,9 +117,10 @@ def sync(
             \"query\":\"Where is Munich?\",
             \"documents\":[\"Munich is in Germany.\", \"The sky is blue.\"]
         })
+    ```
 
     Args:
-        body (RerankInput):
+        body (RerankInput): Input for reranking
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -141,7 +143,7 @@ async def asyncio_detailed(
 ) -> Response[Union[HTTPValidationError, ReRankResult]]:
     r"""Rerank
 
-     Rerank documents
+     Rerank documents. Aligned with Cohere API (https://docs.cohere.com/reference/rerank)
 
     ```python
     import requests
@@ -151,9 +153,10 @@ async def asyncio_detailed(
             \"query\":\"Where is Munich?\",
             \"documents\":[\"Munich is in Germany.\", \"The sky is blue.\"]
         })
+    ```
 
     Args:
-        body (RerankInput):
+        body (RerankInput): Input for reranking
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -179,7 +182,7 @@ async def asyncio(
 ) -> Optional[Union[HTTPValidationError, ReRankResult]]:
     r"""Rerank
 
-     Rerank documents
+     Rerank documents. Aligned with Cohere API (https://docs.cohere.com/reference/rerank)
 
     ```python
     import requests
@@ -189,9 +192,10 @@ async def asyncio(
             \"query\":\"Where is Munich?\",
             \"documents\":[\"Munich is in Germany.\", \"The sky is blue.\"]
         })
+    ```
 
     Args:
-        body (RerankInput):
+        body (RerankInput): Input for reranking
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

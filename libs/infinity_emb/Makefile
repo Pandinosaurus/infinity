@@ -3,7 +3,7 @@
 # Default target executed when no arguments are given to make.
 all: help
 
-precommit : | format spell_fix spell_check lint poetry_check test
+precommit : | format spell_fix spell_check lint poetry_check cli_v2_docs openapi test 
 
 ######################
 # TESTING AND COVERAGE
@@ -22,7 +22,7 @@ test tests:
 	poetry run pytest 
 
 openapi:
-	wget http://0.0.0.0:7997/openapi.json -O ../../docs/assets/openapi.json
+	./../../docs/assets/create_openapi_with_server_hook.sh
 
 ######################
 # LINTING AND FORMATTING
@@ -57,6 +57,10 @@ benchmark_embed: tests/data/benchmark/benchmark_embed.json
 	-p $< \
 	http://127.0.0.1:7997/embeddings
 	# sudo apt-get apache2-utils
+
+# Generate CLI v2 documentation
+cli_v2_docs:
+	./../../docs/assets/create_cli_v2_docs.sh
 
 ######################
 # HELP

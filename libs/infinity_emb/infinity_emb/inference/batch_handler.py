@@ -9,7 +9,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
-from typing import Any, Sequence, Set
+from typing import Any, Optional, Sequence, Union
 
 import numpy as np
 
@@ -23,15 +23,18 @@ from infinity_emb.primitives import (
     ClassifyReturnType,
     EmbeddingReturnType,
     EmbeddingSingle,
+    ImageClassType,
     ModelCapabilites,
     ModelNotDeployedError,
     OverloadStatus,
     PredictSingle,
     PrioritizedQueueItem,
+    RerankReturnType,
     ReRankSingle,
     get_inner_item,
 )
 from infinity_emb.transformer.abstract import BaseTransformer
+from infinity_emb.transformer.audio.utils import resolve_audios
 from infinity_emb.transformer.utils import get_lengths_with_tokenize
 from infinity_emb.transformer.vision.utils import resolve_images
 
@@ -120,7 +123,7 @@ class BatchHandler:
 
     async def embed(
         self, sentences: list[str]
-    ) -> tuple[list[EmbeddingReturnType], int]:
+    ) -> tuple[list["EmbeddingReturnType"], int]:
         """Schedule a sentence to be embedded. Awaits until embedded.
 
         Args:
@@ -131,13 +134,13 @@ class BatchHandler:
                 capabilities
 
         Returns:
-            list[EmbeddingReturnType]: list of embedding as 1darray
+            list["EmbeddingReturnType"]: list of embedding as 1darray
             int: token usage
         """
         if "embed" not in self.model_worker.capabilities:
             raise ModelNotDeployedError(
-                "the loaded moded cannot fullyfill `embed`."
-                f"options are {self.model_worker.capabilities}."
+                "the loaded moded cannot fullyfill `embed`. "
+                f"Options are {self.model_worker.capabilities}."
             )
         input_sentences = [EmbeddingSingle(sentence=s) for s in sentences]
 
@@ -145,14 +148,20 @@ class BatchHandler:
         return embeddings, usage
 
     async def rerank(
-        self, query: str, docs: list[str], raw_scores: bool = False
-    ) -> tuple[list[float], int]:
+        self,
+        query: str,
+        docs: list[str],
+        raw_scores: bool = False,
+        top_n: Optional[int] = None,
+    ) -> tuple[list[RerankReturnType], int]:
         """Schedule a query to be reranked with documents. Awaits until reranked.
 
         Args:
             query (str): query for reranking
             docs (list[str]): documents to be reranked
             raw_scores (bool): return raw scores instead of sigmoid
+            top_n (Optional[int]): number of top scores to return after reranking
+                if top_n is None, <= 0 or out of range, all scores are returned
 
         Raises:
             ModelNotDeployedError: If loaded model does not expose `embed`
@@ -164,17 +173,26 @@ class BatchHandler:
         """
         if "rerank" not in self.model_worker.capabilities:
             raise ModelNotDeployedError(
-                "the loaded moded cannot fullyfill `rerank`."
-                f"options are {self.model_worker.capabilities}."
+                "the loaded moded cannot fullyfill `rerank`. "
+                f"Options are {self.model_worker.capabilities}."
             )
         rerankables = [ReRankSingle(query=query, document=doc) for doc in docs]
         scores, usage = await self._schedule(rerankables)
 
         if not raw_scores:
             # perform sigmoid on scores
-            scores = (1 / (1 + np.exp(-np.array(scores)))).tolist()
+            scores = 1 / (1 + np.exp(-np.array(scores)))
 
-        return scores, usage
+        results = [
+            RerankReturnType(relevance_score=scores[i], index=i, document=docs[i])
+            for i in range(len(scores))
+        ]
+        results = sorted(results, key=lambda x: x.relevance_score, reverse=True)
+
+        if top_n is not None and top_n > 0:
+            results = results[:top_n]
+
+        return results, usage
 
     async def classify(
         self, *, sentences: list[str], raw_scores: bool = True
@@ -195,8 +213,8 @@ class BatchHandler:
         """
         if "classify" not in self.model_worker.capabilities:
             raise ModelNotDeployedError(
-                "the loaded moded cannot fullyfill `classify`."
-                f"options are {self.model_worker.capabilities}."
+                "the loaded moded cannot fullyfill `classify`. "
+                f"Options are {self.model_worker.capabilities}."
             )
         items = [PredictSingle(sentence=s) for s in sentences]
         classifications, usage = await self._schedule(items)
@@ -210,29 +228,61 @@ class BatchHandler:
     async def image_embed(
         self,
         *,
-        images: list[str],
-    ) -> tuple[list[EmbeddingReturnType], int]:
+        images: list[Union[str, "ImageClassType", bytes]],
+    ) -> tuple[list["EmbeddingReturnType"], int]:
         """Schedule a images and sentences to be embedded. Awaits until embedded.
 
         Args:
-            images (list[str]): list of pre-signed urls
+            images (list[Union[str, ImageClassType]]): list of pre-signed urls or ImageClassType objects
 
         Raises:
             ModelNotDeployedError: If loaded model does not expose `embed`
                 capabilities
 
         Returns:
-            list[EmbeddingReturnType]: list of embedding as 1darray
+            list["EmbeddingReturnType"]: list of embedding as 1darray
             int: token usage
         """
 
         if "image_embed" not in self.model_worker.capabilities:
             raise ModelNotDeployedError(
-                "the loaded moded cannot fullyfill `image_embed`."
-                f"options are {self.model_worker.capabilities}."
+                "the loaded moded cannot fullyfill `image_embed`. "
+                f"Options are {self.model_worker.capabilities}."
             )
 
-        items = await asyncio.to_thread(resolve_images, images)
+        items = await resolve_images(images)
+        embeddings, usage = await self._schedule(items)
+        return embeddings, usage
+
+    async def audio_embed(
+        self,
+        *,
+        audios: list[Union[str, bytes]],
+    ) -> tuple[list["EmbeddingReturnType"], int]:
+        """Schedule audios and sentences to be embedded. Awaits until embedded.
+
+        Args:
+            audios (list[NDArray]): list of raw wave data
+
+        Raises:
+            ModelNotDeployedError: If loaded model does not expose `embed`
+                capabilities
+
+        Returns:
+            list["EmbeddingReturnType"]: list of embedding as 1darray
+            int: token usage
+        """
+
+        if "audio_embed" not in self.model_worker.capabilities:
+            raise ModelNotDeployedError(
+                "the loaded moded cannot fullyfill `audio_embed`. "
+                f"Options are {self.model_worker.capabilities}."
+            )
+
+        items = await resolve_audios(
+            audios,
+            getattr(self.model_worker._model, "sampling_rate", -42),
+        )
         embeddings, usage = await self._schedule(items)
         return embeddings, usage
 
@@ -260,7 +310,7 @@ class BatchHandler:
         return result, usage
 
     @property
-    def capabilities(self) -> Set[ModelCapabilites]:
+    def capabilities(self) -> set[ModelCapabilites]:
         # TODO: try to remove inheritance here and return upon init.
         return self.model_worker.capabilities
 
@@ -308,6 +358,7 @@ class BatchHandler:
         shutdown: ShutdownReadOnly, result_queue: Queue, tp: ThreadPoolExecutor
     ):
         """background thread for reading  exits only if shutdown.is_set()"""
+        schedule_errors = 0
         try:
             while not shutdown.is_set():
                 try:
@@ -318,6 +369,14 @@ class BatchHandler:
                         post_batch = await to_thread(result_queue.get, tp, timeout=0.5)
                     except queue.Empty:
                         # in case of timeout start again
+                        continue
+                    except Exception as e:
+                        # exception handing without loop forever.
+                        time.sleep(1)
+                        schedule_errors += 1
+                        if schedule_errors > 10:
+                            logger.error("too many schedule errors")
+                            raise e
                         continue
                 results, batch = post_batch
                 for i, item in enumerate(batch):
@@ -388,7 +447,7 @@ class ModelWorker:
         self._threadpool.submit(self._postprocess_batch)
 
     @property
-    def capabilities(self) -> Set[ModelCapabilites]:
+    def capabilities(self) -> set[ModelCapabilites]:
         return self._model.capabilities
 
     def tokenize_lengths(self, *args, **kwargs):

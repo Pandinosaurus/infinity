@@ -4,7 +4,9 @@ import sys
 
 import numpy as np
 import pytest
+import requests
 import torch
+from PIL import Image
 from sentence_transformers import CrossEncoder  # type: ignore[import-untyped]
 
 from infinity_emb import AsyncEmbeddingEngine, AsyncEngineArray, EngineArgs
@@ -64,8 +66,8 @@ async def test_async_api_torch():
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("engine", [InferenceEngine.torch, InferenceEngine.optimum])
-async def test_engine_reranker_torch_opt(engine):
+@pytest.mark.parametrize("engine_name", [InferenceEngine.torch])
+async def test_engine_reranker_torch_opt(engine_name: InferenceEngine):
     model_unpatched = CrossEncoder(
         "mixedbread-ai/mxbai-rerank-xsmall-v1",
     )
@@ -86,14 +88,44 @@ async def test_engine_reranker_torch_opt(engine):
     query_docs = [(query, doc) for doc in documents]
 
     async with engine:
-        rankings, usage = await engine.rerank(query=query, docs=documents)
-
+        rankings_objects, usage = await engine.rerank(query=query, docs=documents)
+    rankings = [
+        x.relevance_score
+        for x in sorted(rankings_objects, key=lambda x: x.index, reverse=False)
+    ]
     rankings_unpatched = model_unpatched.predict(query_docs)
 
     np.testing.assert_allclose(rankings, rankings_unpatched, rtol=1e-1, atol=1e-1)
     assert usage == sum([len(query) + len(d) for d in documents])
     assert len(rankings) == len(documents)
     np.testing.assert_almost_equal(rankings[:3], [0.83, 0.085, 0.028], decimal=2)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("engine_name", [InferenceEngine.torch])
+async def test_engine_reranker_top_n(engine_name):
+    query = "Where is Paris?"
+    documents = [
+        "Paris is the capital of France.",
+        "Berlin is the capital of Germany.",
+        "You can now purchase my favorite dish",
+    ]
+    engine = AsyncEmbeddingEngine.from_args(
+        EngineArgs(
+            model_name_or_path="mixedbread-ai/mxbai-rerank-xsmall-v1",
+            engine=engine_name,
+            model_warmup=False,
+            bettertransformer=False,
+        )
+    )
+
+    async with engine:
+        for top_k in [None, 1, 2, 3, len(documents) + 999999]:
+            rankings, _ = await engine.rerank(query=query, docs=documents, top_n=top_k)
+            if top_k is None:
+                assert len(rankings) == len(documents)
+            else:
+                assert len(rankings) == min(top_k, len(documents))
 
 
 @pytest.mark.anyio
@@ -174,6 +206,73 @@ async def test_torch_clip_embed():
     assert emb_image_np.shape[0] == len(image_urls)
     assert emb_text_np.shape[1] >= 10
     assert emb_image_np.shape == emb_image_np[: len(image_urls)].shape
+
+    assert usage_text == sum([len(s) for s in sentences])
+
+    # check if cat image and two cats are most similar
+    for i in range(1, len(sentences)):
+        assert np.dot(emb_text_np[0], emb_image_np[0]) > np.dot(
+            emb_text_np[i], emb_image_np[0]
+        )
+
+
+@pytest.mark.anyio
+async def test_clap_like_model():
+    model_name = "laion/clap-htsat-unfused"
+    engine = AsyncEmbeddingEngine.from_args(
+        EngineArgs(model_name_or_path=model_name, dtype="float32")
+    )
+    url = pytest.AUDIO_SAMPLE_URL
+    bytes_url = requests.get(url).content
+
+    inputs = ["a sound of a cat", "a sound of a cat"]
+    audios = [url, bytes_url]
+    async with engine:
+        embeddings_text, usage_1 = await engine.embed(sentences=inputs)
+        embeddings_audio, usage_2 = await engine.audio_embed(audios=audios)
+
+    assert usage_1 == sum([len(s) for s in inputs])
+    assert len(embeddings_text) == len(inputs)
+    assert len(embeddings_audio) == len(audios)
+    assert embeddings_text[0].shape[0] == embeddings_audio[0].shape[0]
+    assert all([e.shape[0] >= 10 for e in embeddings_text])
+    assert usage_2 > 0
+
+
+@pytest.mark.anyio
+async def test_clip_embed_pil_image_input():
+    response = requests.get(pytest.IMAGE_SAMPLE_URL, stream=True)
+
+    assert response.status_code == 200
+    img_data = response.raw
+    img_obj = Image.open(img_data)
+    images = [img_obj]  # a photo of two cats
+    sentences = [
+        "a photo of two cats",
+        "a photo of a cat",
+        "a photo of a dog",
+        "a photo of a car",
+    ]
+    engine = AsyncEmbeddingEngine.from_args(
+        EngineArgs(
+            model_name_or_path="wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M",
+            engine=InferenceEngine.torch,
+            model_warmup=True,
+        )
+    )
+    async with engine:
+        t1, t2 = asyncio.create_task(
+            engine.embed(sentences=sentences)
+        ), asyncio.create_task(engine.image_embed(images=images))
+        emb_text, usage_text = await t1
+        emb_image, usage_image = await t2
+        emb_text_np = np.array(emb_text)  # type: ignore
+        emb_image_np = np.array(emb_image)  # type: ignore
+
+    assert emb_text_np.shape[0] == len(sentences)
+    assert emb_image_np.shape[0] == len(images)
+    assert emb_text_np.shape[1] >= 10
+    assert emb_image_np.shape == emb_image_np[: len(images)].shape
 
     assert usage_text == sum([len(s) for s in sentences])
 

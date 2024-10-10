@@ -32,13 +32,12 @@
 
 <p align="center">
   <a href="https://github.com/runpod-workers/worker-infinity-embedding"><img src="https://github.com/user-attachments/assets/24f1906d-31b8-4e16-a479-1382cbdea046" alt="Logo Runpod" width="50"/></a>
-  <a href="https://github.com/runpod-workers/worker-infinity-embedding">
   <a href="https://www.truefoundry.com/cognita"><img src="https://github.com/user-attachments/assets/1b515b0f-2332-4b12-be82-933056bddee4" alt="Logo TrueFoundry" width="50"/></a>
   <a href="https://vast.ai/article/serving-infinity"><img src="https://github.com/user-attachments/assets/8286d620-f403-48f5-bd7f-f471b228ae7b" alt="Logo Vast" width="46"/></a>
-  <img src="https://github.com/user-attachments/assets/3fde1ac6-c299-455d-9fc2-ba4012799f9c" alt="Logo DataGuard" width="50"/>
+  <a href="https://www.dataguard.de"><img src="https://github.com/user-attachments/assets/3fde1ac6-c299-455d-9fc2-ba4012799f9c" alt="Logo DataGuard" width="50"/></a>
   <a href="https://community.sap.com/t5/artificial-intelligence-and-machine-learning-blogs/bring-open-source-llms-into-sap-ai-core/ba-p/13655167"><img src="https://github.com/user-attachments/assets/743e932b-ed5b-4a71-84cb-f28235707a84" alt="Logo SAP" width="47"/></a>
   <a href="https://x.com/StuartReid1929/status/1763434100382163333"><img src="https://github.com/user-attachments/assets/477a4c54-1113-434b-83bc-1985f10981d3" alt="Logo Nosible" width="44"/></a>
-  <img src="https://github.com/user-attachments/assets/a68da78b-d958-464e-aaf6-f39132be68a0" alt="Logo FreshWorks" width="50"/>
+  <a href="https://github.com/freshworksinc/freddy-infinity"><img src="https://github.com/user-attachments/assets/a68da78b-d958-464e-aaf6-f39132be68a0" alt="Logo FreshWorks" width="50"/></a>
   <a href="https://github.com/dstackai/dstack/tree/master/examples/deployment/infinity"><img src="https://github.com/user-attachments/assets/9cde2d6b-dc16-4f0a-81ba-535a84321467" alt="Logo Dstack" width="50"/></a>
 </p> 
 
@@ -120,7 +119,7 @@ asyncio.run(embed_text(array[0]))
 ```
 
 Example embedding models:
-- Any trending embedding / reranking model is likley supported: https://huggingface.co/models?other=text-embeddings-inference&sort=trending
+- Any trending embedding / reranking model is likely supported: https://huggingface.co/models?other=text-embeddings-inference&sort=trending
 - [mixedbread-ai/mxbai-embed-large-v1](https://huggingface.co/mixedbread-ai/mxbai-embed-large-v1)
 - [WhereIsAI/UAE-Large-V1](https://huggingface.co/WhereIsAI/UAE-Large-V1)
 - [BAAI/bge-base-en-v1.5](https://huggingface.co/BAAI/bge-base-en-v1.5)
@@ -199,6 +198,47 @@ Example models:
 - Currently no support for pure vision models: nomic-ai/nomic-embed-vision-v1.5, ..
 
 
+### CLAP models
+
+CLAP models are able to encode audio and text at the same time. 
+
+```python
+import asyncio
+from infinity_emb import AsyncEngineArray, EngineArgs, AsyncEmbeddingEngine
+import requests
+import soundfile as sf
+import io
+
+sentences = ["This is awesome.", "I am bored."]
+
+url = "https://bigsoundbank.com/UPLOAD/wav/2380.wav"
+raw_bytes = requests.get(url, stream=True).content
+
+audios = [raw_bytes]
+engine_args = EngineArgs(
+    model_name_or_path = "laion/clap-htsat-unfused",
+    dtype="float32", 
+    engine="torch"
+
+)
+array = AsyncEngineArray.from_args([engine_args])
+
+async def embed(engine: AsyncEmbeddingEngine): 
+    await engine.astart()
+    embeddings, usage = await engine.embed(sentences=sentences)
+    embedding_audios = await engine.audio_embed(audios=audios)
+    await engine.astop()
+
+asyncio.run(embed(array["laion/clap-htsat-unfused"]))
+```
+
+* Note: The sampling rate of the audio data needs to match the model *
+
+Example models:
+- [Clap Models from LAION](https://huggingface.co/collections/laion/clap-contrastive-language-audio-pretraining-65415c0b18373b607262a490)
+
+
+
 ### Text Classification 
 
 Use text classification with Infinity's `classify` feature, which allows for sentiment analysis, emotion detection, and more classification tasks.
@@ -235,6 +275,7 @@ Example models:
 - [Dwarves Foundation: Deployment examples using Modal.com](https://github.com/dwarvesf/llm-hosting)
 - [infiniflow/Ragflow](https://github.com/infiniflow/ragflow)
 - [SAP Core AI](https://github.com/SAP-samples/btp-generative-ai-hub-use-cases/tree/main/10-byom-oss-llm-ai-core)
+- [gpt_server - gpt_server is an open-source framework designed for production-level deployment of LLMs (Large Language Models) or Embeddings.](https://github.com/shell-nlp/gpt_server)
 
 ## Launch FAQ:
 <details>

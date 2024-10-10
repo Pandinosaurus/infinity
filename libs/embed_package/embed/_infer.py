@@ -102,6 +102,28 @@ class BatchedInference:
         """
         return self._engine_array.image_embed(model=model_id, images=images)
 
+    def audio_embed(
+        self,
+        *,
+        audios: list[str],
+        model_id: ModelIndex = 0,
+    ) -> Future[tuple[list[list[float]], int]]:
+        """Embed audios with a model.
+
+        >>> import requests, io
+        >>> url = "https://github.com/michaelfeil/infinity/raw/3b72eb7c14bae06e68ddd07c1f23fe0bf403f220/libs/infinity_emb/tests/data/audio/beep.wav"
+        >>> ei = BatchedInference(model_id="laion/larger_clap_general", engine="torch")
+        >>> audio_embed_result = ei.audio_embed(model_id="laion/larger_clap_general", audios=[url])
+        >>> type(audio_embed_result)
+        <class 'concurrent.futures._base.Future'>
+        >>> audio_embed_result.result()[0][0].shape
+        (512,)
+        >>> audio_embed_result.result()[1]
+        20
+        >>> ei.stop()
+        """
+        return self._engine_array.audio_embed(model=model_id, audios=audios)
+
     def classify(
         self,
         *,

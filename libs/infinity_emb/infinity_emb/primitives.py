@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import (
     TYPE_CHECKING,
+    Any,
     Generic,
     Literal,
     Optional,
@@ -31,14 +32,29 @@ from typing import (
 import numpy as np
 import numpy.typing as npt
 
+EmptyImageClassType: Any = Any
 if TYPE_CHECKING:
-    from PIL.Image import Image as ImageClass
+    try:
+        from PIL.Image import Image as ImageClass
+
+        EmptyImageClassType = ImageClass
+    except ImportError:
+        pass
+ImageClassType = EmptyImageClassType
 
 # if python>=3.10 use kw_only
 
 dataclass_args = {"kw_only": True} if sys.version_info >= (3, 10) else {}
 
 EmbeddingReturnType = npt.NDArray[Union[np.float32, np.float32]]
+AudioInputType = npt.NDArray[np.float32]
+
+
+@dataclass(**dataclass_args)
+class RerankReturnType:
+    relevance_score: float
+    document: str
+    index: int
 
 
 class ClassifyReturnType(TypedDict):
@@ -51,7 +67,7 @@ ReRankReturnType = float
 UnionReturnType = Union[EmbeddingReturnType, ReRankReturnType, ClassifyReturnType]
 
 
-class EnumType(enum.Enum):
+class EnumType(str, enum.Enum):
     @classmethod
     @lru_cache
     def names_enum(cls) -> enum.Enum:
@@ -67,6 +83,15 @@ class EnumType(enum.Enum):
     @staticmethod
     def default_value() -> str:
         raise NotImplementedError
+
+
+class EmbeddingEncodingFormat(EnumType):
+    float = "float"
+    base64 = "base64"
+
+    @staticmethod
+    def default_value():
+        return EmbeddingEncodingFormat.float.value
 
 
 class InferenceEngine(EnumType):
@@ -100,6 +125,7 @@ class Device(EnumType):
 class Dtype(EnumType):
     float32: str = "float32"
     float16: str = "float16"
+    bfloat16: str = "bfloat16"
     int8: str = "int8"
     fp8: str = "fp8"
     auto: str = "auto"
@@ -115,6 +141,10 @@ class EmbeddingDtype(EnumType):
     uint8: str = "uint8"
     binary: str = "binary"
     ubinary: str = "ubinary"
+
+    @lru_cache
+    def uses_bitpacking(self) -> bool:
+        return self in [EmbeddingDtype.binary, EmbeddingDtype.ubinary]
 
     @staticmethod
     def default_value():
@@ -138,7 +168,9 @@ class AbstractSingle(ABC):
         pass
 
     @abstractmethod
-    def to_input(self) -> Union[str, tuple[str, str], "ImageClass"]:
+    def to_input(
+        self,
+    ) -> Union[str, tuple[str, str], "ImageClass", "AudioInputType"]:
         pass
 
 
@@ -182,6 +214,19 @@ class ImageSingle(AbstractSingle):
         return self.image
 
 
+@dataclass(**dataclass_args)
+class AudioSingle(AbstractSingle):
+    audio: AudioInputType
+    sampling_rate: int
+
+    def str_repr(self) -> str:
+        """creates a dummy representation of the audio to count tokens relative to shape"""
+        return f"an audio is worth a repeated {'token' * len(self.audio)}"
+
+    def to_input(self) -> AudioInputType:
+        return self.audio
+
+
 AbstractInnerType = TypeVar("AbstractInnerType")
 
 
@@ -202,7 +247,7 @@ class AbstractInner(ABC, Generic[AbstractInnerType]):
 @dataclass(order=True, **dataclass_args)
 class EmbeddingInner(AbstractInner):
     content: EmbeddingSingle
-    embedding: Optional[EmbeddingReturnType] = None
+    embedding: Optional["EmbeddingReturnType"] = None
 
     async def complete(self, result: EmbeddingReturnType) -> None:
         """marks the future for completion.
@@ -274,7 +319,7 @@ class PredictInner(AbstractInner):
 @dataclass(order=True, **dataclass_args)
 class ImageInner(AbstractInner):
     content: ImageSingle
-    embedding: Optional[EmbeddingReturnType] = None
+    embedding: Optional["EmbeddingReturnType"] = None
 
     async def complete(self, result: EmbeddingReturnType) -> None:
         """marks the future for completion.
@@ -295,13 +340,40 @@ class ImageInner(AbstractInner):
         return self.embedding
 
 
-QueueItemInner = Union[EmbeddingInner, ReRankInner, PredictInner, ImageInner]
+@dataclass(order=True, **dataclass_args)
+class AudioInner(AbstractInner):
+    content: AudioSingle
+    embedding: Optional["EmbeddingReturnType"] = None
+
+    async def complete(self, result: EmbeddingReturnType) -> None:
+        """marks the future for completion.
+        only call from the same thread as created future."""
+        self.embedding = result
+
+        if self.embedding is None:
+            raise ValueError("embedding is None")
+        try:
+            self.future.set_result(self.embedding)
+        except asyncio.exceptions.InvalidStateError:
+            pass
+
+    async def get_result(self) -> EmbeddingReturnType:
+        """waits for future to complete and returns result"""
+        await self.future
+        assert self.embedding is not None
+        return self.embedding
+
+
+QueueItemInner = Union[
+    EmbeddingInner, ReRankInner, PredictInner, ImageInner, AudioInner
+]
 
 _type_to_inner_item_map = {
     EmbeddingSingle: EmbeddingInner,
     ReRankSingle: ReRankInner,
     PredictSingle: PredictInner,
     ImageSingle: ImageInner,
+    AudioSingle: AudioInner,
 }
 
 
@@ -333,4 +405,14 @@ class ImageCorruption(Exception):
     pass
 
 
-ModelCapabilites = Literal["embed", "rerank", "classify", "image_embed"]
+class AudioCorruption(Exception):
+    pass
+
+
+ModelCapabilites = Literal["embed", "rerank", "classify", "image_embed", "audio_embed"]
+
+
+class Modality(str, enum.Enum):
+    text = "text"
+    audio = "audio"
+    image = "image"
