@@ -64,18 +64,26 @@ def sync_detailed(
     client: Union[AuthenticatedClient, Client],
     body: ImageEmbeddingInput,
 ) -> Response[Union[HTTPValidationError, OpenAIEmbeddingResult]]:
-    r"""Embeddings Image
+    r"""Deprecated: Use `embeddings` with `modality` set to `image`
 
-     Encode Embeddings
+     Encode Embeddings from Image files
+
+    Supports URLs of Images and Base64-encoded Images
 
     ```python
     import requests
     requests.post(\"http://..:7997/embeddings_image\",
-        json={\"model\":\"openai/clip-vit-base-
-    patch32\",\"input\":[\"http://images.cocodataset.org/val2017/000000039769.jpg\"]})
+        json={
+            \"model\":\"openai/clip-vit-base-patch32\",
+            \"input\": [
+                \"http://images.cocodataset.org/val2017/000000039769.jpg\",
+                \"data:image/png;base64,iVBORw0KGgoDEMOoSAMPLEoENCODEDIMAGE\"
+            ]
+        })
+    ```
 
     Args:
-        body (ImageEmbeddingInput):
+        body (ImageEmbeddingInput): LEGACY, DO NO LONGER UPDATE
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -101,18 +109,26 @@ def sync(
     client: Union[AuthenticatedClient, Client],
     body: ImageEmbeddingInput,
 ) -> Optional[Union[HTTPValidationError, OpenAIEmbeddingResult]]:
-    r"""Embeddings Image
+    r"""Deprecated: Use `embeddings` with `modality` set to `image`
 
-     Encode Embeddings
+     Encode Embeddings from Image files
+
+    Supports URLs of Images and Base64-encoded Images
 
     ```python
     import requests
     requests.post(\"http://..:7997/embeddings_image\",
-        json={\"model\":\"openai/clip-vit-base-
-    patch32\",\"input\":[\"http://images.cocodataset.org/val2017/000000039769.jpg\"]})
+        json={
+            \"model\":\"openai/clip-vit-base-patch32\",
+            \"input\": [
+                \"http://images.cocodataset.org/val2017/000000039769.jpg\",
+                \"data:image/png;base64,iVBORw0KGgoDEMOoSAMPLEoENCODEDIMAGE\"
+            ]
+        })
+    ```
 
     Args:
-        body (ImageEmbeddingInput):
+        body (ImageEmbeddingInput): LEGACY, DO NO LONGER UPDATE
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -133,18 +149,26 @@ async def asyncio_detailed(
     client: Union[AuthenticatedClient, Client],
     body: ImageEmbeddingInput,
 ) -> Response[Union[HTTPValidationError, OpenAIEmbeddingResult]]:
-    r"""Embeddings Image
+    r"""Deprecated: Use `embeddings` with `modality` set to `image`
 
-     Encode Embeddings
+     Encode Embeddings from Image files
+
+    Supports URLs of Images and Base64-encoded Images
 
     ```python
     import requests
     requests.post(\"http://..:7997/embeddings_image\",
-        json={\"model\":\"openai/clip-vit-base-
-    patch32\",\"input\":[\"http://images.cocodataset.org/val2017/000000039769.jpg\"]})
+        json={
+            \"model\":\"openai/clip-vit-base-patch32\",
+            \"input\": [
+                \"http://images.cocodataset.org/val2017/000000039769.jpg\",
+                \"data:image/png;base64,iVBORw0KGgoDEMOoSAMPLEoENCODEDIMAGE\"
+            ]
+        })
+    ```
 
     Args:
-        body (ImageEmbeddingInput):
+        body (ImageEmbeddingInput): LEGACY, DO NO LONGER UPDATE
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -168,18 +192,26 @@ async def asyncio(
     client: Union[AuthenticatedClient, Client],
     body: ImageEmbeddingInput,
 ) -> Optional[Union[HTTPValidationError, OpenAIEmbeddingResult]]:
-    r"""Embeddings Image
+    r"""Deprecated: Use `embeddings` with `modality` set to `image`
 
-     Encode Embeddings
+     Encode Embeddings from Image files
+
+    Supports URLs of Images and Base64-encoded Images
 
     ```python
     import requests
     requests.post(\"http://..:7997/embeddings_image\",
-        json={\"model\":\"openai/clip-vit-base-
-    patch32\",\"input\":[\"http://images.cocodataset.org/val2017/000000039769.jpg\"]})
+        json={
+            \"model\":\"openai/clip-vit-base-patch32\",
+            \"input\": [
+                \"http://images.cocodataset.org/val2017/000000039769.jpg\",
+                \"data:image/png;base64,iVBORw0KGgoDEMOoSAMPLEoENCODEDIMAGE\"
+            ]
+        })
+    ```
 
     Args:
-        body (ImageEmbeddingInput):
+        body (ImageEmbeddingInput): LEGACY, DO NO LONGER UPDATE
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

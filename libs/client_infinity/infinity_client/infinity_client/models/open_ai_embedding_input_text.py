@@ -3,23 +3,32 @@ from typing import Any, Dict, List, Type, TypeVar, Union, cast
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..models.embedding_encoding_format import EmbeddingEncodingFormat
+from ..models.open_ai_embedding_input_text_modality import OpenAIEmbeddingInputTextModality
 from ..types import UNSET, Unset
 
-T = TypeVar("T", bound="OpenAIEmbeddingInput")
+T = TypeVar("T", bound="OpenAIEmbeddingInputText")
 
 
 @_attrs_define
-class OpenAIEmbeddingInput:
-    """
+class OpenAIEmbeddingInputText:
+    """helper
+
     Attributes:
         input_ (Union[List[str], str]):
         model (Union[Unset, str]):  Default: 'default/not-specified'.
+        encoding_format (Union[Unset, EmbeddingEncodingFormat]):
         user (Union[None, Unset, str]):
+        dimensions (Union[Unset, int]):  Default: 0.
+        modality (Union[Unset, OpenAIEmbeddingInputTextModality]):  Default: OpenAIEmbeddingInputTextModality.TEXT.
     """
 
     input_: Union[List[str], str]
     model: Union[Unset, str] = "default/not-specified"
+    encoding_format: Union[Unset, EmbeddingEncodingFormat] = UNSET
     user: Union[None, Unset, str] = UNSET
+    dimensions: Union[Unset, int] = 0
+    modality: Union[Unset, OpenAIEmbeddingInputTextModality] = OpenAIEmbeddingInputTextModality.TEXT
     additional_properties: Dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -32,11 +41,21 @@ class OpenAIEmbeddingInput:
 
         model = self.model
 
+        encoding_format: Union[Unset, str] = UNSET
+        if not isinstance(self.encoding_format, Unset):
+            encoding_format = self.encoding_format.value
+
         user: Union[None, Unset, str]
         if isinstance(self.user, Unset):
             user = UNSET
         else:
             user = self.user
+
+        dimensions = self.dimensions
+
+        modality: Union[Unset, str] = UNSET
+        if not isinstance(self.modality, Unset):
+            modality = self.modality.value
 
         field_dict: Dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -47,8 +66,14 @@ class OpenAIEmbeddingInput:
         )
         if model is not UNSET:
             field_dict["model"] = model
+        if encoding_format is not UNSET:
+            field_dict["encoding_format"] = encoding_format
         if user is not UNSET:
             field_dict["user"] = user
+        if dimensions is not UNSET:
+            field_dict["dimensions"] = dimensions
+        if modality is not UNSET:
+            field_dict["modality"] = modality
 
         return field_dict
 
@@ -71,6 +96,13 @@ class OpenAIEmbeddingInput:
 
         model = d.pop("model", UNSET)
 
+        _encoding_format = d.pop("encoding_format", UNSET)
+        encoding_format: Union[Unset, EmbeddingEncodingFormat]
+        if isinstance(_encoding_format, Unset):
+            encoding_format = UNSET
+        else:
+            encoding_format = EmbeddingEncodingFormat(_encoding_format)
+
         def _parse_user(data: object) -> Union[None, Unset, str]:
             if data is None:
                 return data
@@ -80,14 +112,26 @@ class OpenAIEmbeddingInput:
 
         user = _parse_user(d.pop("user", UNSET))
 
-        open_ai_embedding_input = cls(
+        dimensions = d.pop("dimensions", UNSET)
+
+        _modality = d.pop("modality", UNSET)
+        modality: Union[Unset, OpenAIEmbeddingInputTextModality]
+        if isinstance(_modality, Unset):
+            modality = UNSET
+        else:
+            modality = OpenAIEmbeddingInputTextModality(_modality)
+
+        open_ai_embedding_input_text = cls(
             input_=input_,
             model=model,
+            encoding_format=encoding_format,
             user=user,
+            dimensions=dimensions,
+            modality=modality,
         )
 
-        open_ai_embedding_input.additional_properties = d
-        return open_ai_embedding_input
+        open_ai_embedding_input_text.additional_properties = d
+        return open_ai_embedding_input_text
 
     @property
     def additional_keys(self) -> List[str]:

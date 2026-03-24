@@ -9,8 +9,11 @@ from typing import TYPE_CHECKING
 from infinity_emb._optional_imports import CHECK_SENTENCE_TRANSFORMERS, CHECK_TORCH
 from infinity_emb.args import EngineArgs
 from infinity_emb.log_handler import logger
-from infinity_emb.primitives import Dtype
+from infinity_emb.primitives import Device
 from infinity_emb.transformer.abstract import BaseCrossEncoder
+from infinity_emb.transformer.quantization.interface import (
+    quant_interface,
+)
 
 if CHECK_TORCH.is_available and CHECK_SENTENCE_TRANSFORMERS.is_available:
     import torch
@@ -25,7 +28,10 @@ if TYPE_CHECKING:
     from torch import Tensor
 
 
-from infinity_emb.transformer.acceleration import to_bettertransformer
+from infinity_emb.transformer.acceleration import (
+    to_bettertransformer,
+    check_if_bettertransformer_possible,
+)
 
 __all__ = [
     "CrossEncoderPatched",
@@ -39,17 +45,24 @@ class CrossEncoderPatched(CrossEncoder, BaseCrossEncoder):
         CHECK_SENTENCE_TRANSFORMERS.mark_required()
 
         model_kwargs = {}
-        if engine_args.bettertransformer:
+        attempt_bt = check_if_bettertransformer_possible(engine_args)
+        if engine_args.bettertransformer and attempt_bt:
             model_kwargs["attn_implementation"] = "eager"
+
+        ls = engine_args._loading_strategy
+        assert ls is not None
+
+        if ls.loading_dtype is not None:  # type: ignore
+            model_kwargs["torch_dtype"] = ls.loading_dtype
 
         super().__init__(
             engine_args.model_name_or_path,
             revision=engine_args.revision,
-            device=engine_args.device.resolve(),  # type: ignore
             trust_remote_code=engine_args.trust_remote_code,
+            device=ls.device_placement,
             automodel_args=model_kwargs,
         )
-        self.model.to(self._target_device)  # type: ignore
+        self.model.to(ls.device_placement)
 
         # make a copy of the tokenizer,
         # to be able to could the tokens in another thread
@@ -57,19 +70,23 @@ class CrossEncoderPatched(CrossEncoder, BaseCrossEncoder):
 
         self._infinity_tokenizer = copy.deepcopy(self.tokenizer)
         self.model.eval()  # type: ignore
+        if engine_args.bettertransformer and attempt_bt:
+            self.model = to_bettertransformer(
+                self.model,  # type: ignore
+                engine_args,
+                logger,
+            )
 
-        self.model = to_bettertransformer(
-            self.model,  # type: ignore
-            engine_args,
-            logger,
-        )
+        self.model.to(ls.loading_dtype)
 
-        if self._target_device.type == "cuda" and engine_args.dtype in [
-            Dtype.auto,
-            Dtype.float16,
-        ]:
-            logger.info("Switching to half() precision (cuda: fp16). ")
-            self.model.to(dtype=torch.float16)
+        if ls.quantization_dtype is not None:
+            self.model = quant_interface(  # TODO: add ls.quantization_dtype and ls.placement
+                self.model, engine_args.dtype, device=Device[self.model.device.type]
+            )
+
+        if engine_args.compile:
+            logger.info("using torch.compile(dynamic=True)")
+            self.model = torch.compile(self.model, dynamic=True)
 
     def encode_pre(self, input_tuples: list[tuple[str, str]]):
         # return input_tuples
@@ -91,7 +108,7 @@ class CrossEncoderPatched(CrossEncoder, BaseCrossEncoder):
         return out_features.detach().cpu()
 
     def encode_post(self, out_features) -> list[float]:
-        return out_features.flatten()
+        return out_features.flatten().to(torch.float32).numpy()
 
     def tokenize_lengths(self, sentences: list[str]) -> list[int]:
         tks = self._infinity_tokenizer.batch_encode_plus(

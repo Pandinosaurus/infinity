@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2023-now michaelfeilfeil
+from __future__ import annotations
 
 from asyncio import Semaphore
-from typing import Iterable, Iterator, Optional, Set, Union
+from typing import Iterable, Iterator, Optional, Union
 
 from infinity_emb.args import EngineArgs
 
@@ -15,7 +16,9 @@ from infinity_emb.log_handler import logger
 from infinity_emb.primitives import (
     ClassifyReturnType,
     EmbeddingReturnType,
+    ImageClassType,
     ModelCapabilites,
+    RerankReturnType,
 )
 
 
@@ -50,7 +53,7 @@ class AsyncEmbeddingEngine:
 
         self.running = False
         self._running_sepamore: Optional[Semaphore] = None
-        self._model, self._min_inference_t, self._max_inference_t = select_model(
+        self._model_replicas, self._min_inference_t, self._max_inference_t = select_model(
             self._engine_args
         )
 
@@ -64,6 +67,7 @@ class AsyncEmbeddingEngine:
         Args:
             engine_args (EngineArgs): EngineArgs object
         """
+        logger.debug("Creating AsyncEmbeddingEngine from `%s`", engine_args)
         engine = cls(**engine_args.to_dict(), _show_deprecation_warning=False)
 
         return engine
@@ -84,8 +88,8 @@ class AsyncEmbeddingEngine:
                 self.running = True
                 self._batch_handler = BatchHandler(
                     max_batch_size=self._engine_args.batch_size,
-                    model=self._model,
-                    batch_delay=self._min_inference_t / 2,
+                    model_replicas=self._model_replicas,
+                    # batch_delay=self._min_inference_t / 2,
                     vector_disk_cache_path=self._engine_args.vector_disk_cache_path,
                     verbose=logger.level <= 10,
                     lengths_via_tokenize=self._engine_args.lengths_via_tokenize,
@@ -120,20 +124,21 @@ class AsyncEmbeddingEngine:
         return self.running
 
     @property
-    def capabilities(self) -> Set[ModelCapabilites]:
-        return self._model.capabilities
+    def capabilities(self) -> set[ModelCapabilites]:
+        return self._model_replicas[0].capabilities
 
     @property
     def engine_args(self) -> EngineArgs:
         return self._engine_args
 
     async def embed(
-        self, sentences: list[str]
-    ) -> tuple[list[EmbeddingReturnType], int]:
+        self, sentences: list[str], matryoshka_dim: int | None = None
+    ) -> tuple[list["EmbeddingReturnType"], int]:
         """embed multiple sentences
 
         Kwargs:
             sentences (list[str]): sentences to be embedded
+            matryoshka_dim (int): Length of matryoshka embedding
 
         Raises:
             ValueError: raised if engine is not started yet
@@ -141,24 +146,33 @@ class AsyncEmbeddingEngine:
                 capabilities
 
         Returns:
-            list[EmbeddingReturnType]: embeddings
+            list["EmbeddingReturnType"]: embeddings
                 2D list-array of shape( len(sentences),embed_dim )
             int: token usage
         """
 
         self._assert_running()
-        embeddings, usage = await self._batch_handler.embed(sentences=sentences)
+        embeddings, usage = await self._batch_handler.embed(
+            sentences=sentences, matryoshka_dim=matryoshka_dim
+        )
         return embeddings, usage
 
     async def rerank(
-        self, *, query: str, docs: list[str], raw_scores: bool = False
-    ) -> tuple[list[float], int]:
+        self,
+        *,
+        query: str,
+        docs: list[str],
+        raw_scores: bool = False,
+        top_n: Optional[int] = None,
+    ) -> tuple[list["RerankReturnType"], int]:
         """rerank multiple sentences
 
         Kwargs:
             query (str): query to be reranked
             docs (list[str]): docs to be reranked
             raw_scores (bool): return raw scores instead of sigmoid
+            top_n (Optional[int]): number of top scores to return after reranking
+                if top_n is None, <= 0 or out of range, all scores are returned
 
         Raises:
             ValueError: raised if engine is not started yet
@@ -171,7 +185,10 @@ class AsyncEmbeddingEngine:
         """
         self._assert_running()
         scores, usage = await self._batch_handler.rerank(
-            query=query, docs=docs, raw_scores=raw_scores
+            query=query,
+            docs=docs,
+            raw_scores=raw_scores,
+            top_n=top_n,
         )
 
         return scores, usage
@@ -202,12 +219,16 @@ class AsyncEmbeddingEngine:
         return scores, usage
 
     async def image_embed(
-        self, *, images: list[str]
-    ) -> tuple[list[EmbeddingReturnType], int]:
+        self,
+        *,
+        images: list[Union[str, "ImageClassType", bytes]],
+        matryoshka_dim: int | None = None,
+    ) -> tuple[list["EmbeddingReturnType"], int]:
         """embed multiple images
 
         Kwargs:
-            images (list[str]): list of image urls, to be embedded
+            images (list[Union[str, ImageClassType]]): list of image urls or ImageClassType objects, to be embedded
+            matryoshka_dim (int): Length of matryoshka embedding
 
         Raises:
             ValueError: raised if engine is not started yet
@@ -215,13 +236,41 @@ class AsyncEmbeddingEngine:
                 capabilities
 
         Returns:
-            list[EmbeddingReturnType]: embeddings
+            list["EmbeddingReturnType"]: embeddings
                 2D list-array of shape( len(sentences),embed_dim )
             int: token usage
         """
 
         self._assert_running()
-        embeddings, usage = await self._batch_handler.image_embed(images=images)
+        embeddings, usage = await self._batch_handler.image_embed(
+            images=images, matryoshka_dim=matryoshka_dim
+        )
+        return embeddings, usage
+
+    async def audio_embed(
+        self, *, audios: list[Union[str, bytes]], matryoshka_dim: int | None = None
+    ) -> tuple[list["EmbeddingReturnType"], int]:
+        """embed multiple audios
+
+        Kwargs:
+            audios (list[Union[str, Audiobytes]]): list of audio data, to be embedded
+            matryoshka_dim (int): Length of matryoshka embedding
+
+        Raises:
+            ValueError: raised if engine is not started yet
+            ModelNotDeployedError: If loaded model does not expose `audio_embed`
+                capabilities
+
+        Returns:
+            list["EmbeddingReturnType"]: embeddings
+                2D list-array of shape( len(sentences), embed_dim )
+            int: token usage
+        """
+
+        self._assert_running()
+        embeddings, usage = await self._batch_handler.audio_embed(
+            audios=audios, matryoshka_dim=matryoshka_dim
+        )
         return embeddings, usage
 
     def _assert_running(self):
@@ -243,9 +292,7 @@ class AsyncEngineArray:
             set(engine.engine_args.served_model_name for engine in engines)
         ):
             raise ValueError("Engines must have unique model names")
-        self.engines_dict = {
-            engine.engine_args.served_model_name: engine for engine in engines
-        }
+        self.engines_dict = {engine.engine_args.served_model_name: engine for engine in engines}
 
     @classmethod
     def from_args(cls, engine_args_array: Iterable[EngineArgs]) -> "AsyncEngineArray":
@@ -272,13 +319,14 @@ class AsyncEngineArray:
             await engine.astop()
 
     async def embed(
-        self, *, model: str, sentences: list[str]
-    ) -> tuple[list[EmbeddingReturnType], int]:
+        self, *, model: str, sentences: list[str], matryoshka_dim: Optional[int] = None
+    ) -> tuple[list["EmbeddingReturnType"], int]:
         """embed multiple sentences
 
         Kwargs:
             model (str): model name to be used
             sentences (list[str]): sentences to be embedded
+            matryoshka_dim (int): Length of matryoshka embedding
 
         Raises:
             ValueError: raised if engine is not started yet
@@ -286,18 +334,24 @@ class AsyncEngineArray:
                 capabilities
 
         Returns:
-            list[EmbeddingReturnType]: embeddings
+            list["EmbeddingReturnType"]: embeddings
                 2D list-array of shape( len(sentences),embed_dim )
             int: token usage
         """
-        return await self[model].embed(sentences)
+        return await self[model].embed(sentences, matryoshka_dim=matryoshka_dim)
 
     def is_running(self) -> bool:
         return all(engine.is_running for engine in self.engines_dict.values())
 
     async def rerank(
-        self, *, model: str, query: str, docs: list[str], raw_scores: bool = False
-    ) -> tuple[list[float], int]:
+        self,
+        *,
+        model: str,
+        query: str,
+        docs: list[str],
+        raw_scores: bool = False,
+        top_n: Optional[int] = None,
+    ) -> tuple[list["RerankReturnType"], int]:
         """rerank multiple sentences
 
         Kwargs:
@@ -305,6 +359,7 @@ class AsyncEngineArray:
             query (str): query to be reranked
             docs (list[str]): docs to be reranked
             raw_scores (bool): return raw scores instead of sigmoid
+            top_n (Optional[int]): number of top scores to return after reranking
 
         Raises:
             ValueError: raised if engine is not started yet
@@ -315,7 +370,7 @@ class AsyncEngineArray:
             list[float]: list of scores
             int: token usage
         """
-        return await self[model].rerank(query=query, docs=docs, raw_scores=raw_scores)
+        return await self[model].rerank(query=query, docs=docs, raw_scores=raw_scores, top_n=top_n)
 
     async def classify(
         self, *, model: str, sentences: list[str], raw_scores: bool = False
@@ -339,13 +394,18 @@ class AsyncEngineArray:
         return await self[model].classify(sentences=sentences, raw_scores=raw_scores)
 
     async def image_embed(
-        self, *, model: str, images: list[str]
-    ) -> tuple[list[EmbeddingReturnType], int]:
+        self,
+        *,
+        model: str,
+        images: list[Union[str, "ImageClassType"]],
+        matryoshka_dim: Optional[int] = None,
+    ) -> tuple[list["EmbeddingReturnType"], int]:
         """embed multiple images
 
         Kwargs:
             model (str): model name to be used
-            images (list[str]): list of image urls, to be embedded
+            images (list[Union[str, ImageClassType]]): list of image urls or ImageClassType objects, to be embedded
+            matryoshka_dim (int): Length of matryoshka embedding
 
         Raises:
             ValueError: raised if engine is not started yet
@@ -353,11 +413,11 @@ class AsyncEngineArray:
                 capabilities
 
         Returns:
-            list[EmbeddingReturnType]: embeddings
+            list["EmbeddingReturnType"]: embeddings
                 2D list-array of shape( len(sentences),embed_dim )
             int: token usage
         """
-        return await self[model].image_embed(images=images)
+        return await self[model].image_embed(images=images, matryoshka_dim=matryoshka_dim)
 
     def __getitem__(self, index_or_name: Union[str, int]) -> "AsyncEmbeddingEngine":
         """resolve engine by model name -> Auto resolve if only one engine is present
@@ -375,3 +435,25 @@ class AsyncEngineArray:
             f"Engine for model name `{index_or_name}` not found. "
             f"Available model names are {list(self.engines_dict.keys())}"
         )
+
+    async def audio_embed(
+        self, *, model: str, audios: list[Union[str, bytes]], matryoshka_dim: Optional[int] = None
+    ) -> tuple[list["EmbeddingReturnType"], int]:
+        """embed multiple audios
+
+        Kwargs:
+            model (str): model name to be used
+            audios (list[Union[str, bytes]]): list of audio data, to be embedded
+            matryoshka_dim (int): Length of matryoshka embedding
+
+        Raises:
+            ValueError: raised if engine is not started yet
+            ModelNotDeployedError: If loaded model does not expose `audio_embed`
+                capabilities
+
+        Returns:
+            list["EmbeddingReturnType"]: embeddings
+                2D list-array of shape( len(sentences),embed_dim )
+            int: token usage
+        """
+        return await self[model].audio_embed(audios=audios, matryoshka_dim=matryoshka_dim)

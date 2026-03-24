@@ -2,10 +2,7 @@
 # Copyright (c) 2023-now michaelfeil
 
 import copy
-import json
-import subprocess
-from typing import Union
-
+import os
 import numpy as np
 
 from infinity_emb._optional_imports import CHECK_OPTIMUM_NEURON, CHECK_TORCH
@@ -30,22 +27,7 @@ __all__ = [
 ]
 
 
-def get_nc_count() -> Union[int, None]:
-    """Returns the number of neuron cores on the current instance."""
-    try:
-        cmd = "neuron-ls --json-output"
-        result = subprocess.run(cmd, shell=True, capture_output=True)
-        print("inferring nc_count from `neuron-ls`")
-        print(result.stdout.decode("utf-8"))
-        json_output = json.loads(result.stdout)
-        count = sum([x["nc_count"] for x in json_output])
-        print(f"nc_count={count}")
-        return count
-    except Exception:
-        return None
-
-
-def pad_up_to_size(desired_max_bs, input_ids):
+def pad_up_to_size(desired_max_bs: int, input_ids: "torch.Tensor") -> "torch.Tensor":
     """input_ids a 2D array with batch_size on dim=0
 
     makes sure the func runs with self.batch_size
@@ -81,9 +63,7 @@ class NeuronOptimumEmbedder(BaseEmbedder):
         CHECK_OPTIMUM_NEURON.mark_required()
 
         self.pooling = (
-            mean_pooling
-            if engine_args.pooling_method == PoolingMethod.mean
-            else cls_token_pooling
+            mean_pooling if engine_args.pooling_method == PoolingMethod.mean else cls_token_pooling
         )
 
         self.tokenizer = AutoTokenizer.from_pretrained(
@@ -98,9 +78,15 @@ class NeuronOptimumEmbedder(BaseEmbedder):
         )
         self._infinity_tokenizer = copy.deepcopy(self.tokenizer)
 
-        compiler_args = {"num_cores": get_nc_count(), "auto_cast_type": "fp16"}
+        # Default to 1 NeuronCore (data parallelism).  For large models that
+        # require tensor parallelism across multiple cores, set the
+        # NEURON_NUM_CORES environment variable.  For data-parallel scaling,
+        # run separate server processes pinned to individual cores via
+        # NEURON_RT_VISIBLE_CORES (see infra/aws_neuron/README.md).
+        num_cores = int(os.environ.get("NEURON_NUM_CORES", "1"))
+        compiler_args = {"num_cores": num_cores, "auto_cast_type": "fp16"}
         input_shapes = {
-            "batch_size": 4,
+            "batch_size": engine_args.batch_size,
             "sequence_length": (
                 self.config.max_position_embeddings
                 if hasattr(self.config, "max_position_embeddings")
@@ -118,18 +104,17 @@ class NeuronOptimumEmbedder(BaseEmbedder):
         )
         self.batch_size = self.model.neuron_config.input_shapes["batch_size"]
 
-    def encode_pre(self, sentences: list[str]) -> dict[str, np.ndarray]:
+    def encode_pre(self, sentences: list[str]) -> dict[str, "torch.Tensor"]:
         input_dict = self.tokenizer(
             sentences,
             max_length=self.config.max_position_embeddings,
             padding=True,
             truncation="longest_first",
             return_tensors="pt",
-            return_token_type_ids=False,
         )
         return input_dict
 
-    def encode_core(self, input_dict: dict[str, np.ndarray]) -> dict:
+    def encode_core(self, input_dict: dict[str, "torch.Tensor"]) -> dict:
         """requires constant batch size, which is a bit of extra work"""
         for key, tensor in input_dict.items():
             actual_bsize = tensor.shape[0]
@@ -142,7 +127,7 @@ class NeuronOptimumEmbedder(BaseEmbedder):
         }
 
     @quant_embedding_decorator()
-    def encode_post(self, embedding: dict) -> EmbeddingReturnType:
+    def encode_post(self, embedding: dict[str, "torch.Tensor"]) -> EmbeddingReturnType:
         embedding = self.pooling(  # type: ignore
             embedding["token_embeddings"].numpy(), embedding["attention_mask"].numpy()
         )
@@ -157,8 +142,6 @@ class NeuronOptimumEmbedder(BaseEmbedder):
                 truncation="longest_first",
             )
         else:
-            tks = self._infinity_tokenizer(
-                sentences, padding=False, truncation="longest_first"
-            )
+            tks = self._infinity_tokenizer(sentences, padding=False, truncation="longest_first")
 
         return [len(t) for t in tks["input_ids"]]

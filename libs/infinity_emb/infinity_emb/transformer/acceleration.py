@@ -4,13 +4,23 @@
 import os
 from typing import TYPE_CHECKING
 
-from infinity_emb._optional_imports import CHECK_OPTIMUM, CHECK_TORCH
+from infinity_emb._optional_imports import CHECK_OPTIMUM, CHECK_TORCH, CHECK_TRANSFORMERS
 from infinity_emb.primitives import Device
 
 if CHECK_OPTIMUM.is_available:
-    from optimum.bettertransformer import (  # type: ignore[import-untyped]
-        BetterTransformer,
-    )
+    try:
+        from optimum.bettertransformer import (  # type: ignore[import-untyped]
+            BetterTransformer,
+            BetterTransformerManager,
+        )
+    except (ImportError, ModuleNotFoundError):
+        # optimum.bettertransformer was removed in optimum >= 2.0
+        CHECK_OPTIMUM.mark_dirty(
+            ImportError(
+                "optimum.bettertransformer is not available in this version of optimum. "
+                "BetterTransformer support requires optimum < 2.0."
+            )
+        )
 
 if CHECK_TORCH.is_available:
     import torch
@@ -19,6 +29,9 @@ if CHECK_TORCH.is_available:
         # allow TF32 for better performance
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
+if CHECK_TRANSFORMERS.is_available:
+    from transformers import AutoConfig  # type: ignore[import-untyped]
+
 
 if TYPE_CHECKING:
     from logging import Logger
@@ -28,9 +41,24 @@ if TYPE_CHECKING:
     from infinity_emb.args import EngineArgs
 
 
-def to_bettertransformer(
-    model: "PreTrainedModel", engine_args: "EngineArgs", logger: "Logger"
-):
+def check_if_bettertransformer_possible(engine_args: "EngineArgs") -> bool:
+    """verifies if attempting conversion to bettertransformers should be checked."""
+    if not engine_args.bettertransformer:
+        return False
+
+    if "BetterTransformerManager" not in globals():
+        return False
+
+    config = AutoConfig.from_pretrained(
+        pretrained_model_name_or_path=engine_args.model_name_or_path,
+        revision=engine_args.revision,
+        trust_remote_code=engine_args.trust_remote_code,
+    )
+
+    return config.model_type in BetterTransformerManager.MODEL_MAPPING
+
+
+def to_bettertransformer(model: "PreTrainedModel", engine_args: "EngineArgs", logger: "Logger"):
     if not engine_args.bettertransformer:
         return model
 
@@ -55,7 +83,14 @@ def to_bettertransformer(
     ):
         raise ValueError("BetterTransformer overwrite requires eager attention.")
     CHECK_OPTIMUM.mark_required()
-    logger.info("Adding optimizations via Huggingface optimum. ")
+    CHECK_TORCH.mark_required()
+    logger.info("Adding optimizations via bettertransformer.")
+    if engine_args.compile and torch.__version__ > (2, 5, 0):  # type: ignore
+        raise ValueError(
+            "BetterTransformer + torch.compile is not available for PyTorch >= 2.5.0. "
+            "We recommend turning off torch.compile for better performance anyhow for models supported by BetterTransformer (bert, roberta)"
+            "Since torch 2.5.0, this combination leads to a segfault. Please report if you find this check to be incorrect."
+        )
     try:
         model = BetterTransformer.transform(model)
     except Exception as ex:

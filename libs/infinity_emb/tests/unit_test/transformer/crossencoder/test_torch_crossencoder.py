@@ -5,8 +5,15 @@ from sentence_transformers import CrossEncoder  # type: ignore
 
 from infinity_emb.args import EngineArgs
 from infinity_emb.transformer.crossencoder.torch import CrossEncoderPatched
+from infinity_emb.primitives import Device
 
-SHOULD_TORCH_COMPILE = sys.platform == "linux" and sys.version_info < (3, 12)
+import torch
+
+device = Device.cpu if torch.backends.mps.is_available() else Device.auto
+
+SHOULD_TORCH_COMPILE = (
+    sys.platform == "linux" and sys.version_info < (3, 12) and torch.cuda.is_available()
+)
 
 
 def test_crossencoder():
@@ -14,6 +21,7 @@ def test_crossencoder():
         engine_args=EngineArgs(
             model_name_or_path="mixedbread-ai/mxbai-rerank-xsmall-v1",
             compile=SHOULD_TORCH_COMPILE,
+            device=device,
         )
     )
 
@@ -37,12 +45,12 @@ def test_crossencoder():
 def test_patched_crossencoder_vs_sentence_transformers():
     model = CrossEncoderPatched(
         engine_args=EngineArgs(
-            model_name_or_path="mixedbread-ai/mxbai-rerank-xsmall-v1", compile=True
+            model_name_or_path="mixedbread-ai/mxbai-rerank-xsmall-v1",
+            compile=SHOULD_TORCH_COMPILE,
+            device=device,
         )
     )
-    model_unpatched = CrossEncoder(
-        "mixedbread-ai/mxbai-rerank-xsmall-v1", trust_remote_code=True
-    )
+    model_unpatched = CrossEncoder("mixedbread-ai/mxbai-rerank-xsmall-v1")
 
     query = "Where is Paris?"
     documents = [
@@ -60,6 +68,4 @@ def test_patched_crossencoder_vs_sentence_transformers():
 
     rankings_unpatched = model_unpatched.predict(query_docs)
 
-    np.testing.assert_allclose(
-        rankings_sigmoid, rankings_unpatched, rtol=1e-2, atol=1e-2
-    )
+    np.testing.assert_allclose(rankings_sigmoid, rankings_unpatched, rtol=1e-2, atol=1e-2)

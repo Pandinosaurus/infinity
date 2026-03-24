@@ -17,12 +17,18 @@ def startup_message(host: str, port: int, prefix: str) -> str:
     return f"""
 
 ♾️  Infinity - Embedding Inference Server
-MIT License; Copyright (c) 2023 Michael Feil
+MIT License; Copyright (c) 2023-now 
+Infinity OSS-Project: github.com/michaelfeil.infinity
+Maintained by @michaelfeil @wirthual
 Version {__version__}
 
 Open the Docs via Swagger UI:
 http://{host}:{port}/docs
 
-Access model via 'GET':
+Access all deployed models via 'GET':
 curl http://{host}:{port}{prefix}/models
+
+Visit the docs for more information:
+https://michaelfeil.github.io/infinity
+
 """

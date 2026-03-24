@@ -1,0 +1,25 @@
+# Recommended: Use the AWS Deep Learning AMI Neuron (Ubuntu 24.04) directly
+# instead of building a custom Docker image. See README.md for instructions.
+#
+# If you must use Docker, this Dockerfile provides a starting point.
+# Note: The Neuron runtime must be available on the host (--device=/dev/neuron0).
+
+# Base image with Neuron SDK pre-installed
+# Mirror of HuggingFace Neuron inference image
+FROM michaelf34/aws-neuron-base-img:0.0.25-inference AS base
+
+WORKDIR /app
+
+COPY ./infra/aws_neuron/requirements_no_gpu.txt requirements_no_gpu.txt
+RUN pip3 install --no-cache-dir -r requirements_no_gpu.txt
+RUN pip config set global.extra-index-url https://pip.repos.neuron.amazonaws.com
+# Tested with: optimum-neuron 0.4.4, optimum 2.0.0, neuronx-cc 2.21, torch-neuronx 2.8
+RUN pip3 install --no-cache-dir --no-deps sentence_transformers && \
+    pip3 install --no-cache-dir --upgrade neuronx-cc torch-neuronx torchvision libneuronxla protobuf optimum-neuron optimum
+
+FROM base AS infinity_latest
+COPY ./libs/infinity_emb .
+RUN pip3 install -e .
+ENV INFINITY_BATCH_SIZE=8
+ENV INFINITY_ENGINE=neuron
+ENTRYPOINT [ "infinity_emb" ]
